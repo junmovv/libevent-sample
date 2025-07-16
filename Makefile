@@ -1,6 +1,6 @@
 # 编译器配置
 CXX := g++
-CXXFLAGS := -Wall -Wextra   # 编译选项：全警告+优化
+CXXFLAGS := -Wall  -g   # 编译选项：全警告+优化
 SRCS := $(wildcard *.cpp)       # 获取所有 .cpp 文件
 TARGETS := $(SRCS:.cpp=)        # 生成同名可执行文件列表
 LDLIBS := -levent -levent_pthreads -lpthread

@@ -7,182 +7,192 @@
 #include <signal.h>
 #define use_socket
 #define use_event_buff
+#include <event2/event.h>
+#include <event2/bufferevent.h>
+#include <cstring>
+#include <iostream>
+#include <string>
+
+#include <event2/event.h>
+#include <event2/bufferevent.h>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <netinet/in.h>
 
 namespace tcpClient
 {
-
-    /**
-     * 客户端事件回调函数
-     * @param be bufferevent指针
-     * @param events 触发的事件标志
-     * @param arg 用户自定义参数(此处未使用)
-     *
-     * 处理事件包括：
-     * 1. 连接成功
-     * 2. 读取超时
-     * 3. 错误发生
-     * 4. 连接断开(EOF)
-     */
-    void client_event_cb(bufferevent *be, short events, void *)
+    enum class ClientState
     {
-        std::cout << "client_event_cb: events=" << events << std::endl;
+        CONNECTING, // 正在连接 [新增状态]
+        CONNECTED,  // 连接成功
+        WRITING,    // 正在写数据
+        READING,    // 正在读数据
+        CLOSING     // 正在关闭 [新增状态]
+    };
+
+    struct ClientContext
+    {
+        ClientState state = ClientState::CONNECTING; // 初始状态修正
+        bufferevent *bev = nullptr;
+        std::string sendData; // 改用string管理发送数据
+        std::string recvBuffer;
+        event_base *base = nullptr;
+    };
+
+    // --------------- 回调函数优化 ---------------
+    void client_event_cb(bufferevent *bev, short events, void *arg)
+    {
+        ClientContext *ctx = static_cast<ClientContext *>(arg);
+        std::cout << "Event: " << events << std::endl;
 
         if (events & BEV_EVENT_CONNECTED)
         {
-            std::cout << "BEV_EVENT_CONNECTED: Connection established successfully" << std::endl;
-            // 触发write回调，开始发送数据
-            bufferevent_trigger(be, EV_WRITE, 0);
-            return; // 连接成功不需要释放资源
-        }
+            std::cout << "Connected to server" << std::endl;
+            ctx->state = ClientState::CONNECTED;
 
-        // 读取超时事件
-        if (events & BEV_EVENT_TIMEOUT && events & BEV_EVENT_READING)
-        {
-            std::cout << "BEV_EVENT_READING|BEV_EVENT_TIMEOUT: Read operation timed out" << std::endl;
+            // 连接成功后直接触发首次写入
+            bufferevent_trigger(bev, EV_WRITE, 0);
         }
-        // 错误事件
-        else if (events & BEV_EVENT_ERROR)
-        {
-            std::cout << "BEV_EVENT_ERROR: "
-                      << evutil_socket_error_to_string(EVUTIL_SOCKET_ERROR())
-                      << std::endl;
-        }
-        // 连接关闭事件
         else if (events & BEV_EVENT_EOF)
         {
-            std::cout << "BEV_EVENT_EOF: Connection closed by server" << std::endl;
+            std::cout << "Connection closed by server" << std::endl;
+            if (ctx->recvBuffer.size() > 0)
+            {
+                std::cout << "Final data received: " << ctx->recvBuffer << std::endl;
+            }
+            ctx->state = ClientState::CLOSING;
+            bufferevent_free(bev);
+            delete ctx;
         }
-
-        // 释放资源（确保只释放一次）
-        if (be)
+        else if (events & BEV_EVENT_ERROR)
         {
-            // 先禁用事件避免重复触发
-            bufferevent_disable(be, EV_READ | EV_WRITE);
-            // 当调用bufferevent_free(bev)时，相关的socket和事件都会被释放
-            // 如果这是最后一个活跃的事件源，事件循环自然就会退出
-            bufferevent_free(be);
+            std::cerr << "Socket error: " << evutil_socket_error_to_string(EVUTIL_SOCKET_ERROR()) << std::endl;
+            bufferevent_free(bev);
+            delete ctx;
+        }
+        else if (events & BEV_EVENT_TIMEOUT)
+        {
+            std::cerr << (events & BEV_EVENT_READING ? "Read" : "Write") << " timeout" << std::endl;
+            bufferevent_free(bev);
+            delete ctx;
         }
     }
 
-    /**
-     * 客户端写回调函数
-     * @param be bufferevent指针
-     * @param arg 用户自定义参数(文件指针)
-     *
-     * 处理数据发送逻辑，当可以写入数据时被触发
-     */
-    void client_write_cb(bufferevent *be, void *arg)
+    void client_write_cb(bufferevent *bev, void *arg)
     {
-        std::cout << "client_write_cb" << std::endl;
-        FILE *fp = (FILE *)arg;
-        if (!fp)
+        ClientContext *ctx = static_cast<ClientContext *>(arg);
+
+        if (ctx->state == ClientState::CONNECTED)
         {
-            bufferevent_disable(be, EV_WRITE);
-            return;
+            // 首次发送数据
+            std::string msg = "CLIENT: " + ctx->sendData;
+            bufferevent_write(bev, msg.c_str(), msg.size());
+            std::cout << "Data sent: " << msg << std::endl;
+            ctx->state = ClientState::WRITING;
+
+            // 准备接收响应
+            bufferevent_enable(bev, EV_READ);
         }
-
-        char data[1024] = {0};
-        int len = fread(data, 1, sizeof(data) - 1, fp);
-
-        if (len <= 0)
+        else if (ctx->state == ClientState::WRITING)
         {
-            // 禁用写事件而不是立即释放，确保缓冲区数据发送完成
-            bufferevent_disable(be, EV_WRITE);
-            return;
+            // 写入完成后的状态转换
+            ctx->state = ClientState::READING;
         }
-
-        // 写入发送缓冲区
-        bufferevent_write(be, data, len);
     }
 
-    /**
-     * 客户端读回调函数
-     * @param be bufferevent指针
-     * @param arg 用户自定义参数(未使用)
-     *
-     * 处理从服务器接收的数据
-     */
-    void client_read_cb(bufferevent *, void *)
+    void client_read_cb(bufferevent *bev, void *arg)
     {
-        std::cout << "[client_R]" << std::flush;
-        // 可以添加实际的数据处理逻辑，例如：
-        // char buf[1024];
-        // int n = bufferevent_read(be, buf, sizeof(buf));
-        // if (n > 0) {
-        //     process_received_data(buf, n);
-        // }
+        ClientContext *ctx = static_cast<ClientContext *>(arg);
+        char buf[1024];
+
+        while (true)
+        {
+            int n = bufferevent_read(bev, buf, sizeof(buf) - 1);
+            if (n <= 0)
+                break;
+
+            buf[n] = '\0';
+            ctx->recvBuffer.append(buf, n);
+            std::cout << "Partial data: " << buf << std::endl;
+        }
+
+        // 检测到完整消息（示例：按换行符分割）
+        size_t pos;
+        while ((pos = ctx->recvBuffer.find('c')) != std::string::npos)
+        {
+            std::string message = ctx->recvBuffer.substr(0, pos);
+            ctx->recvBuffer.erase(0, pos + 1);
+            std::cout << "完整消息: " << message << std::endl;
+
+            // 收到完整消息后关闭连接（根据业务逻辑调整）
+            ctx->state = ClientState::CLOSING;
+            bufferevent_disable(bev, EV_READ | EV_WRITE);
+            bufferevent_free(bev);
+            delete ctx;
+            return; // 资源已释放，立即退出
+        }
     }
 
-    /**
-     * 测试客户端函数
-     * @param base event_base指针
-     * @return 执行状态(0表示成功)
-     *
-     * 初始化客户端连接并启动事件循环
-     */
-    int test_client()
+    // --------------- 主函数优化 ---------------
+    int test(const std::string &mode)
     {
         event_base *base = event_base_new();
         if (!base)
-        {
             return -1;
-        }
-        // 创建新的bufferevent
-        bufferevent *bev = bufferevent_socket_new(base, -1, BEV_OPT_CLOSE_ON_FREE);
+
+        // 创建非阻塞socket
+        bufferevent *bev = bufferevent_socket_new(
+            base,
+            -1,
+            BEV_OPT_CLOSE_ON_FREE | BEV_OPT_DEFER_CALLBACKS);
         if (!bev)
         {
-            std::cerr << "Error creating bufferevent" << std::endl;
+            event_base_free(base);
             return -1;
         }
 
-        // 设置服务器地址
-        sockaddr_in sin;
-        memset(&sin, 0, sizeof(sin));
+        // 配置服务器地址
+        sockaddr_in sin = {0};
         sin.sin_family = AF_INET;
-        sin.sin_port = htons(9999);
-        evutil_inet_pton(AF_INET, "10.184.148.247", &sin.sin_addr.s_addr);
+        sin.sin_port = htons(8000);
+        evutil_inet_pton(AF_INET, "192.168.1.2", &sin.sin_addr.s_addr);
 
-        // 打开要发送的文件
-        FILE *fp = fopen("server.hpp", "rb");
-        if (!fp)
-        {
-            std::cerr << "Error opening file" << std::endl;
-            bufferevent_free(bev);
-            return -1;
-        }
+        // 初始化上下文
+        ClientContext *ctx = new ClientContext();
+        ctx->bev = bev;
+        ctx->base = base;
+        ctx->sendData = (mode == "read") ? "READ_REQUEST" : "WRITE_REQUEST";
+        ctx->state = ClientState::CONNECTING;
 
-        // 设置回调函数
-        bufferevent_setcb(bev, client_read_cb, client_write_cb, client_event_cb, fp);
+        // 设置回调
+        bufferevent_setcb(bev, client_read_cb, client_write_cb, client_event_cb, ctx);
 
-        // 启用读写事件
-        bufferevent_enable(bev, EV_READ | EV_WRITE);
+        // 设置超时（读写各3秒）
+        timeval tv = {10, 0};
+        bufferevent_set_timeouts(bev, &tv, &tv);
 
-        // 设置超时（建议添加）
-        timeval tv_read = {10, 0};  // 10秒读超时
-        timeval tv_write = {10, 0}; // 10秒写超时
-        bufferevent_set_timeouts(bev, &tv_read, &tv_write);
+        // 启用写事件（连接建立后触发）
+        bufferevent_enable(bev, EV_WRITE);
 
         // 发起连接
-        int re = bufferevent_socket_connect(bev, (sockaddr *)&sin, sizeof(sin));
-        if (re != 0)
+        if (bufferevent_socket_connect(bev, (sockaddr *)&sin, sizeof(sin)))
         {
-            std::cerr << "Connect failed: "
-                      << evutil_socket_error_to_string(EVUTIL_SOCKET_ERROR())
-                      << std::endl;
+            std::cerr << "Connection failed" << std::endl;
             bufferevent_free(bev);
-            fclose(fp);
+            delete ctx;
+            event_base_free(base);
             return -1;
         }
 
-        std::cout << "Connection initiated" << std::endl;
-
-        // 进入事件主循环
+        // 启动事件循环
         event_base_dispatch(base);
-        fclose(fp);
-        std::cout << "exit" << std::endl;
+        event_base_free(base);
+        std::cout << "Client terminated" << std::endl;
         return 0;
     }
 }
+
 namespace tcpServer
 {
 
@@ -359,7 +369,7 @@ namespace tcpServer
         event_base_loopexit(base, &timeout);
     }
 
-    int test_server()
+    int test()
     {
         event_base *base = event_base_new();
         if (!base)
@@ -447,6 +457,7 @@ int main()
         std::cerr << "Failed to ignore SIGPIPE" << std::endl;
         return -1;
     }
-    tcpServer::test_server();
+    tcpClient::test("read");
+    // tcpServer::test();
     return 0;
 }
