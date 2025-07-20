@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>英雄联盟游戏资料库</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, #1a2a6c, #b21f1f, #fdbb2d);
+            color: white;
+            border-radius: 8px;
+        }
+        .champion-info {
+            background-color: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        .champion-image {
+            width: 100%;
+            border-radius: 6px;
+            margin: 15px 0;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .abilities {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .ability {
+            padding: 12px;
+            background-color: #f0f4ff;
+            border-radius: 6px;
+        }
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding: 20px;
+            color: #666;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>英雄联盟：亚索游戏指南</h1>
+        <p>疾风剑豪的完全攻略手册</p>
+    </header>
+
+    <div class="champion-info">
+        <h2>英雄背景故事</h2>
+        <p>亚索是一个百折不屈的艾欧尼亚人，也是天才剑客。他能够通过风的力量斩杀敌人，他的传奇在战场上无人不知。然而因为被诬陷杀害长老，他被迫卷入一场生存之战...</p>
+        
+        <img src="/image/lol.jpg" alt="亚索英雄原画" class="champion-image">
+        
+        <h2>核心玩法技巧</h2>
+        <ul>
+            <li><strong>斩钢闪(Q)：</strong> 亚索的基础输出技能，连续命中两次后生成旋风</li>
+            <li><strong>风之障壁(W)：</strong> 创造风墙阻挡所有飞行道具，持续4秒</li>
+            <li><strong>踏前斩(E)：</strong> 向目标敌人突进，造成魔法伤害</li>
+            <li><strong>狂风绝息斩(R)：</strong> 闪烁到被击飞的敌人身边，造成大量伤害</li>
+        </ul>
+        
+        <div class="abilities">
+            <div class="ability">
+                <h3>连招技巧</h3>
+                <p>基础连招：E → Q → E → 平A → E → R</p>
+            </div>
+            <div class="ability">
+                <h3>符文推荐</h3>
+                <p>精密系：征服者 → 凯旋 → 传说：欢欣 → 致命一击</p>
+            </div>
+            <div class="ability">
+                <h3>装备路线</h3>
+                <p>核心三件套：不朽盾弓 → 无尽之刃 → 幻影之舞</p>
+            </div>
+        </div>
+        
+        <h2>进阶策略</h2>
+        <p>亚索的强度很大程度上取决于玩家的操作技巧和对时机的把握。在团战中，等待队友创造击飞机会是关键。风墙的正确使用可以完全改变团战走向...</p>
+    </div>
+
+    <footer>
+        <p>© 2025 英雄联盟攻略资料库 | 服务器状态：<span id="server-status">运行中</span></p>
+        <p>本页面由静态HTTP服务器提供支持 | 资源路径：/web/index.html</p>
+    </footer>
+</body>
+</html>
